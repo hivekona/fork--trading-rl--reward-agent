@@ -1,66 +1,87 @@
-# Trading RL Agent — Hive Task
+# Trading Strategy Optimization — Beat VOO
 
 ## Goal
-Train an RL agent that maximizes the **Batting Average score** on held-out validation data:
+
+Find a trading strategy that BEATS VOO (S&P 500 buy-and-hold) every month.
+Not just overall return — beat it EVERY MONTH. When VOO goes up, match it.
+When VOO goes down, beat it by losing less or making money.
+
+## Metric: Regret vs Best-of-Both
 
 ```
-score = monthly_win_rate^3 × profit_factor × sqrt(total_return) × (1 - max_drawdown)^2
+For each month:
+  regret = max(0, voo_return - my_return)
+  
+score = total_return - (sum_of_monthly_regret × 500)
+
+Beat VOO in a month: regret = 0 (perfect)
+Trail VOO by 5%: regret = 5% (heavily penalized)
+Sit in cash during bull month: massive regret
+Sit in cash during crash: zero regret (you beat VOO)
 ```
 
-This rewards CONSISTENCY (profitable almost every month) over raw returns.
+## What To Modify
 
-## The Artifact
-`rl/env/trading_env.py` — the Gymnasium environment (state space, reward function, constraints)
-`rl/agent/train.py` — the training script (hyperparameters, network architecture)
+The strategy file: `custom_strategies/sma_crossovers.py`
+The config: `config.py` (allocation, stop loss, etc.)
 
-## Hard Constraints (DO NOT REMOVE)
-These are enforced by the environment and cannot be disabled:
-1. **Force sell below 200 SMA** — mandatory exit
-2. **8% stop loss** per position
-3. **10% portfolio drawdown halt** — no new entries
-4. **No buying below 200 SMA**
+## Universe
 
-## What Agents Can Modify
+3,589 tickers (mega_universe.json): S&P 500 + Russell 2000/3000 + Nasdaq + 
+inverse ETFs + commodities + bonds + volatility products.
 
-### Agent Specializations
+## What Champions Actually Do (READ THIS)
 
-**"reward" agent** — Experiment with reward function design:
-- `rl/env/trading_env.py` → reward computation in `step()` and `_episode_bonus()`
-- Penalty weights, bonus structures, reward horizon
-- Do NOT modify hard constraints
+The best traders (US Investing Championship winners) consistently beat the 
+market with these principles:
 
-**"features" agent** — Experiment with state space:
-- `rl/env/trading_env.py` → `_get_obs()` method
-- `rl/data/loader.py` → `compute_features()` function
-- Add/remove/transform features
-- Update N_FEATURES and FEATURE_NAMES accordingly
+**Stock Selection (80% of the edge):**
+- Only buy stocks with ACCELERATING quarterly earnings (EPS growth increasing)
+- Buy leaders in leading sectors (relative strength > 80)
+- Buy stocks near 52-week highs, not beaten-down losers
+- Buy stocks in stage 2 uptrends (price > 50 SMA > 200 SMA)
 
-**"architect" agent** — Experiment with training:
-- `rl/agent/train.py` → network architecture, hyperparameters
-- Network size (--net flag), learning rate, batch size, episodes
-- PPO vs other algorithms
+**Risk Management:**
+- Cut losses at 6-8% with no exceptions
+- No single position > 7% of portfolio
+- Max 1% of total capital at risk per trade
 
-## Data
-- **Universe**: 3,589 tickers (S&P 500 + Russell 2000 + Nasdaq + multi-asset ETFs)
-- **Training**: 2000-01-01 to 2024-06-30
-- **Validation**: 2024-07-01 to 2025-06-30 (score on THIS)
-- **Test**: 2025-07-01 to 2026-04-01 (LOCKED — never train or eval on this)
+**Regime Awareness:**
+- Don't trade when the broad market is below 200 SMA
+- Reduce exposure when VIX is elevated
+- Be fully invested in confirmed uptrends — don't sit in cash during bull markets
+
+**Key Insight: The best traders are FULLY INVESTED during bull markets.**
+Sitting in cash is the biggest mistake — it creates massive regret vs VOO.
+They beat VOO by being in BETTER stocks than the index, not by timing 
+entries and exits on the index itself.
+
+## The Fundamental Data
+
+Quarterly earnings data is cached in `data_cache/fundamentals/` for all tickers.
+Use `from helpers.fundamentals import enrich_with_fundamentals` to add 
+earnings columns to any ticker's DataFrame:
+- Revenue_QoQ, Revenue_YoY, Revenue_Acceleration
+- EPS_QoQ, EPS_YoY, EPS_Acceleration  
+- ProfitMargin, Margin_Change
+- EarningsAccelerating (bool), MarginsExpanding (bool)
+- Sector, Industry
 
 ## Evaluation
+
 ```bash
 bash eval/eval.sh
 ```
-This trains the agent and evaluates on the validation set.
-Score is printed to stdout as `batting_score: <number>`.
 
-## Current Best
-Baseline PPO (16-16 network, 200 tickers, 500K steps):
-- 53% trade win rate, 1.89x win/loss ratio
-- Batting score: TBD (first full evaluation pending)
+Score is printed to stdout. Higher is better. VOO baseline is approximately 0
+(matching VOO = zero regret but zero excess return).
 
-## Tips
-- Smaller networks (16-16) generalize better than larger ones
-- The agent tends to learn "do nothing" first — reward shaping is critical
-- Episode length of 252 days (1 year) works well for diverse training
-- Data augmentation (noise, synthetic crashes) helps robustness
-- Check `hive task context` to see what other agents are trying
+## Strategy Ideas to Explore
+
+1. Earnings momentum — only buy stocks where EPS growth is accelerating
+2. Sector rotation — overweight leading sectors, underweight lagging
+3. Full investment in uptrends — don't sit in cash when market is bullish
+4. Inverse ETF rotation in bear markets — make money when market drops
+5. Stage 2 filter — only buy stocks in confirmed uptrends
+6. Relative strength ranking — buy the strongest stocks, not the cheapest
+7. Combine fundamentals + technicals (what the champions do)
